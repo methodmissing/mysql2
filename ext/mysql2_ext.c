@@ -182,35 +182,34 @@ static VALUE rb_mysql_client_init(RB_MYSQL_UNUSED int argc, RB_MYSQL_UNUSED VALU
   return self;
 }
 
-static void rb_mysql_client_free(void * ptr) {
-  mysql2_client_wrapper * client = ptr;
-
-  if (client->client) {
-    /*
-     * this may send a "QUIT" message to the server and thus block
-     * on the socket write, users are encouraged to close this manually
-     * to avoid this behavior
-     */
-    mysql_close(client->client);
-  }
-  xfree(ptr);
-}
-
+/*
+ * mysql_close() writes a "QUIT" message to the socket, so there's a
+ * tiny chance it'll block while writing that message.
+ */
 static VALUE nogvl_close(void * ptr) {
   mysql_close((MYSQL *)ptr);
   return Qnil;
 }
 
+static void rb_mysql_client_free(void * ptr) {
+  mysql2_client_wrapper * client = ptr;
+
+  if (client->client) {
+    rb_thread_blocking_region(nogvl_close, client->client, RUBY_UBF_IO, 0);
+  }
+  xfree(ptr);
+}
+
 /*
  * Immediately disconnect from the server, normally the garbage collector
  * will disconnect automatically when a connection is no longer needed.
- * Explicitly closing this can free up server resources sooner and is
- * also 100% safe when faced with signals or running multithreaded
+ * Explicitly closing this can free up server resources sooner, since GC
+ * may not run at predictable times.
  */
 static VALUE rb_mysql_client_close(VALUE self) {
   mysql2_client_wrapper *client;
 
-	Data_Get_Struct(self, mysql2_client_wrapper, client);
+  Data_Get_Struct(self, mysql2_client_wrapper, client);
 
   if (client->client) {
     rb_thread_blocking_region(nogvl_close, client->client, RUBY_UBF_IO, 0);
@@ -401,10 +400,21 @@ static VALUE rb_mysql_result_to_obj(MYSQL_RES * r) {
   return obj;
 }
 
+/*
+ * mysql_free_result() will drain the socket if there's unread data
+ * on the wire so responses from subsequent requests can be read.
+ * As usual, there's a chance reading the socket may block or be
+ * interrupted.
+ */
+static VALUE nogvl_free_result(void * ptr) {
+  mysql_free_result((MYSQL_RES *)ptr);
+  return Qnil;
+}
+
 /* this may be called manually or during GC */
 static void rb_mysql_result_free_result(mysql2_result_wrapper * wrapper) {
   if (wrapper && wrapper->resultFreed != 1) {
-    mysql_free_result(wrapper->result);
+    rb_thread_blocking_region(nogvl_free_result, wrapper->result, RUBY_UBF_IO, 0);
     wrapper->resultFreed = 1;
   }
 }
@@ -412,7 +422,6 @@ static void rb_mysql_result_free_result(mysql2_result_wrapper * wrapper) {
 /* this is called during GC */
 static void rb_mysql_result_free(void * wrapper) {
   mysql2_result_wrapper * w = wrapper;
-  /* FIXME: this may call flush_use_result, which can hit the socket */
   rb_mysql_result_free_result(w);
   xfree(wrapper);
 }
