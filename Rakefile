@@ -40,3 +40,5 @@ Rake::ExtensionTask.new("mysql2", JEWELER.gemspec) do |ext|
   ext.lib_dir = File.join 'lib', 'mysql2'
 end
 Rake::Task[:spec].prerequisites << :compile
+
+task :default => :spec
