@@ -2,8 +2,8 @@
 
 #ifdef HAVE_RUBY_ENCODING_H
 rb_encoding *binaryEncoding;
-#define GET_ENCODING(self) \
-  rb_iv_get(self, "@encoding")
+#define GET_ENCODING(wrapper) \
+  (wrapper)->encoding
 #endif
 
 VALUE cMysql2Result;
@@ -22,6 +22,7 @@ static void rb_mysql_result_mark(void * wrapper) {
   if (w) {
     rb_gc_mark(w->fields);
     rb_gc_mark(w->rows);
+    rb_gc_mark(w->encoding);
   }
 }
 
@@ -67,7 +68,7 @@ static VALUE rb_mysql_result_fetch_field(VALUE self, unsigned int idx, short int
     MYSQL_FIELD *field = NULL;
 #ifdef HAVE_RUBY_ENCODING_H
     rb_encoding *default_internal_enc = rb_default_internal_encoding();
-    rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(self));
+    rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(wrapper));
 #endif
 
     field = mysql_fetch_field_direct(wrapper->result, idx);
@@ -99,12 +100,12 @@ static VALUE rb_mysql_result_fetch_row(VALUE self, ID db_timezone, ID app_timezo
   unsigned int i = 0;
   unsigned long * fieldLengths;
   void * ptr;
+  GetMysql2Result(self, wrapper);
+
 #ifdef HAVE_RUBY_ENCODING_H
   rb_encoding *default_internal_enc = rb_default_internal_encoding();
-  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(self));
+  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(wrapper));
 #endif
-
-  GetMysql2Result(self, wrapper);
 
   ptr = wrapper->result;
   row = (MYSQL_ROW)rb_thread_blocking_region(nogvl_fetch_row, ptr, RUBY_UBF_IO, 0);
@@ -392,7 +393,7 @@ static VALUE rb_mysql_result_each(int argc, VALUE * argv, VALUE self) {
 }
 
 /* Mysql2::Result */
-VALUE rb_mysql_result_to_obj(MYSQL_RES * r) {
+VALUE rb_mysql_result_to_obj(MYSQL_RES * r, VALUE encoding) {
   VALUE obj;
   mysql2_result_wrapper * wrapper;
   obj = Data_Make_Struct(cMysql2Result, mysql2_result_wrapper, rb_mysql_result_mark, rb_mysql_result_free, wrapper);
@@ -403,6 +404,7 @@ VALUE rb_mysql_result_to_obj(MYSQL_RES * r) {
   wrapper->result = r;
   wrapper->fields = Qnil;
   wrapper->rows = Qnil;
+  wrapper->encoding = encoding;
   rb_obj_call_init(obj, 0, NULL);
   return obj;
 }

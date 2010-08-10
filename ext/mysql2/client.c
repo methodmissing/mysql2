@@ -10,7 +10,9 @@ static ID intern_merge, intern_error_number_eql, intern_sql_state_eql;
 #ifdef HAVE_RUBY_ENCODING_H
 // oO ... my_ulonglong extra_info;   /* Not used */
 #define GET_ENCODING(client) \
-  (VALUE)client->extra_info
+  (VALUE)(client)->extra_info
+#else
+#define GET_ENCODING(client) Qnil
 #endif
 
 #define REQUIRE_OPEN_DB(_ctxt) \
@@ -237,13 +239,10 @@ static VALUE rb_mysql_client_async_result(VALUE self) {
     return Qnil;
   }
 
-  VALUE resultObj = rb_mysql_result_to_obj(result);
+  VALUE resultObj = rb_mysql_result_to_obj(result, GET_ENCODING(client));
   // pass-through query options for result construction later
   rb_iv_set(resultObj, "@query_options", rb_obj_dup(rb_iv_get(self, "@query_options")));
 
-#ifdef HAVE_RUBY_ENCODING_H
-  rb_iv_set(resultObj, "@encoding", GET_ENCODING(client));
-#endif
   return resultObj;
 }
 
