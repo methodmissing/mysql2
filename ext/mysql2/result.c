@@ -2,6 +2,8 @@
 
 #ifdef HAVE_RUBY_ENCODING_H
 rb_encoding *binaryEncoding;
+#define GET_ENCODING(self) \
+  rb_iv_get(self, "@encoding")
 #endif
 
 VALUE cMysql2Result;

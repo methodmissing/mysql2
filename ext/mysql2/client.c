@@ -7,6 +7,12 @@ static VALUE intern_encoding_from_charset;
 static ID sym_id, sym_version, sym_async, sym_symbolize_keys, sym_as, sym_array;
 static ID intern_merge, intern_error_number_eql, intern_sql_state_eql;
 
+#ifdef HAVE_RUBY_ENCODING_H
+// oO ... my_ulonglong extra_info;   /* Not used */
+#define GET_ENCODING(client) \
+  (VALUE)client->extra_info
+#endif
+
 #define REQUIRE_OPEN_DB(_ctxt) \
   if(!_ctxt->net.vio) { \
     rb_raise(cMysql2Error, "closed MySQL connection"); \
@@ -130,7 +136,6 @@ static VALUE nogvl_close(void * ptr) {
 
 static VALUE allocate(VALUE klass) {
   MYSQL * client;
-
   return Data_Make_Struct(
       klass,
       MYSQL,
@@ -237,7 +242,7 @@ static VALUE rb_mysql_client_async_result(VALUE self) {
   rb_iv_set(resultObj, "@query_options", rb_obj_dup(rb_iv_get(self, "@query_options")));
 
 #ifdef HAVE_RUBY_ENCODING_H
-  rb_iv_set(resultObj, "@encoding", GET_ENCODING(self));
+  rb_iv_set(resultObj, "@encoding", GET_ENCODING(client));
 #endif
   return resultObj;
 }
@@ -276,7 +281,7 @@ static VALUE rb_mysql_client_query(int argc, VALUE * argv, VALUE self) {
   }
 
 #ifdef HAVE_RUBY_ENCODING_H
-  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(self));
+  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(client));
   // ensure the string is in the encoding the connection is expecting
   args.sql = rb_str_export_to_enc(args.sql, conn_enc);
 #endif
@@ -323,7 +328,7 @@ static VALUE rb_mysql_client_escape(VALUE self, VALUE str) {
   Check_Type(str, T_STRING);
 #ifdef HAVE_RUBY_ENCODING_H
   rb_encoding *default_internal_enc = rb_default_internal_encoding();
-  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(self));
+  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(client));
   // ensure the string is in the encoding the connection is expecting
   str = rb_str_export_to_enc(str, conn_enc);
 #endif
@@ -349,10 +354,11 @@ static VALUE rb_mysql_client_escape(VALUE self, VALUE str) {
 }
 
 static VALUE rb_mysql_client_info(RB_MYSQL_UNUSED VALUE self) {
+  GET_CLIENT(self)
   VALUE version = rb_hash_new(), client_info;
 #ifdef HAVE_RUBY_ENCODING_H
   rb_encoding *default_internal_enc = rb_default_internal_encoding();
-  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(self));
+  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(client));
 #endif
 
   rb_hash_aset(version, sym_id, LONG2NUM(mysql_get_client_version()));
@@ -372,7 +378,7 @@ static VALUE rb_mysql_client_server_info(VALUE self) {
   GET_CLIENT(self)
 #ifdef HAVE_RUBY_ENCODING_H
   rb_encoding *default_internal_enc = rb_default_internal_encoding();
-  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(self));
+  rb_encoding *conn_enc = rb_to_encoding(GET_ENCODING(client));
 #endif
 
   REQUIRE_OPEN_DB(client);
@@ -451,9 +457,9 @@ static VALUE set_charset_name(VALUE self, VALUE value) {
   if (new_encoding == Qnil) {
     rb_raise(cMysql2Error, "Unsupported charset: '%s'", RSTRING_PTR(value));
   } else {
-    old_encoding = rb_iv_get(self, "@encoding");
-    if (old_encoding == Qnil) {
-      rb_iv_set(self, "@encoding", new_encoding);
+    old_encoding = GET_ENCODING(client);
+    if (old_encoding == Qfalse) {
+      client->extra_info = (my_ulonglong)new_encoding;
     }
   }
 #endif
